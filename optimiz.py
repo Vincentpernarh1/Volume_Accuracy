@@ -127,36 +127,39 @@ def clean_volume(val):
 def load_dataframes(File_Rela_61, File_Griglia):
     log_message("Processing: load_dataframes()")
     log_message("-> Loading Relatorio_61.xlsx and Griglia.xlsx...")
+
     wb_61 = load_workbook(filename=File_Rela_61, read_only=True, data_only=True)
     wb_griglia = load_workbook(filename=File_Griglia, read_only=True, data_only=True)
+
     if "61" not in wb_61.sheetnames:
         raise ValueError(f"Sheet '61' not found in {File_Rela_61}")
+
     data_61 = list(wb_61["61"].iter_rows(values_only=True))
-    df_61 = pd.DataFrame(data_61[1:], columns=data_61[0]) if len(data_61) > 1 else pd.DataFrame()
-    
-    # --- ADDED FILTERING LOGIC ---
+    df_61 = pd.DataFrame(data_61[1:], columns=data_61[0]).astype(str) if len(data_61) > 1 else pd.DataFrame()
+
+    # --- NEW: Clean up the '.0' from specific columns ---
+    if not df_61.empty:
+        cols_to_clean = ['Modelo', 'PN'] # Add any other numeric columns here
+        for col in cols_to_clean:
+            if col in df_61.columns:
+                # This safely removes '.0' only if it's at the very end of the string
+                df_61[col] = df_61[col].str.removesuffix('.0')
+    # --- End of new section ---
+
     log_message("-> Filtering out rows with empty 'Modelo'...")
-    initial_rows = len(df_61)
-    
-    if 'Modelo' in df_61.columns:
-        # First, drop rows where 'Modelo' is a true NaN or None
-        df_61.dropna(subset=['Modelo'], inplace=True)
-        
-        # Next, filter out rows where 'Modelo' is a string that represents a null-like value
-        # Create a boolean mask for rows to keep
-        # Using .astype(str) handles cases where 'Modelo' might be numeric (e.g., 341.0)
-        mask = ~df_61['Modelo'].astype(str).str.strip().str.lower().isin(['', 'none', 'nan'])
+    if not df_61.empty and 'Modelo' in df_61.columns:
+        initial_rows = len(df_61)
+        mask = ~df_61['Modelo'].str.strip().str.lower().isin(['', 'none', 'nan'])
         df_61 = df_61[mask].copy()
-        
         log_message(f"-> Removed {initial_rows - len(df_61)} invalid rows. Continuing with {len(df_61)} rows.")
-    else:
+    elif 'Modelo' not in df_61.columns:
         log_message("-> WARNING: 'Modelo' column not found. Skipping filter.")
-    # --- END OF FILTERING LOGIC ---
 
     sheet_griglia = wb_griglia[wb_griglia.sheetnames[0]]
     data_griglia = list(sheet_griglia.iter_rows(values_only=True))
-    df_griglia = pd.DataFrame(data_griglia[1:], columns=data_griglia[0]) if len(data_griglia) > 1 else pd.DataFrame()
-    log_message("-> Dataframes loaded successfully.")
+    df_griglia = pd.DataFrame(data_griglia[1:], columns=data_griglia[0]).astype(str) 
+
+    log_message("✅ DataFrames loaded and prepared successfully.")
     return df_61, df_griglia
 
 def clean_griglia(df_griglia):
@@ -169,36 +172,70 @@ def clean_griglia(df_griglia):
     df_griglia["Code"] = df_griglia["Code"].astype(str).str.strip()
     return df_griglia
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code_excluded"):
     log_message(f"Processing: process_volume_table() for '{field}' field...")
+    
+    # Using the trusted logic from your original working code
     df_griglia_clean = clean_griglia(df_griglia.copy())
     results = []
     mode = "min" if field == "included" else "max"
+
     for _, row_61 in df_61.iterrows():
         model_61 = str(row_61.get("Modelo")).strip()
         plant_61 = str(row_61.get("Plant")).strip()
         packet_raw = str(row_61.get(field) or "")
+
         filtered_griglia = df_griglia_clean[
             (df_griglia_clean["Model_cleaned"] == model_61) &
             (df_griglia_clean["Plant_cleaned"] == plant_61)
         ]
+
         packet_values = [val.replace(" ", "").strip().upper() for val in packet_raw.split(",") if val.strip()]
         unique_packet_values = set(packet_values)
+
+        
+
+
         if filtered_griglia.empty:
             row_data = row_61.to_dict()
-            row_data.update({"SINCOM": None, "volume_Head": None, "VolumeTT": None, min_col_name: 0})
+            row_data.update({
+                "SINCOM": None, "volume_Head": None, "VolumeTT": None, min_col_name: 0
+            })
             results.append(row_data)
             continue
+
         unique_sincom_rows = (
             filtered_griglia[['SINCOM', 'Volume Head', 'Volume TT']]
             .drop_duplicates()
             .dropna(subset=["SINCOM"])
         )
+
+        # If there are no SINCOMs for this Model/Plant, create a single null entry and move on
         if unique_sincom_rows.empty:
             row_data = row_61.to_dict()
-            row_data.update({"SINCOM": None, "volume_Head": None, "VolumeTT": None, min_col_name: 0})
+            row_data.update({
+                "SINCOM": None, "volume_Head": None, "VolumeTT": None, min_col_name: 0
+            })
             results.append(row_data)
             continue
+
+        # If there are SINCOMs, process each one
         for _, sincom_row in unique_sincom_rows.iterrows():
             sincom = sincom_row['SINCOM']
             volume_head = clean_volume(sincom_row.get('Volume Head'))
@@ -211,56 +248,129 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
                 min_col_name: compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode=mode)
             })
             results.append(row_data)
+    
     result_df = pd.DataFrame(results)
     preserved_cols = list(df_61.columns) + ["SINCOM", "volume_Head", "VolumeTT", min_col_name]
+    # Ensure all columns are present, even if empty
     for col in preserved_cols:
         if col not in result_df.columns:
             result_df[col] = np.nan if col != min_col_name else 0
+            
     log_message(f"-> Finished processing '{field}' volume table.")
     return result_df[preserved_cols]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="max"):
     if not unique_packet_values:
         return 0
+
     volume_values = []
     for packet_code in unique_packet_values:
-        if len(packet_code) == 1: packet_code = "00" + packet_code
-        elif len(packet_code) == 2: packet_code = "0" + packet_code
+        if len(packet_code) == 1:
+            packet_code = "00" + packet_code
+        elif len(packet_code) == 2:
+            packet_code = "0" + packet_code
         packet_code = packet_code.strip()
-        matched_by_code = filtered_griglia[(filtered_griglia["SINCOM"] == sincom) & (filtered_griglia["Code"].str.contains(packet_code, na=False, regex=False))]
-        matched_by_packet = filtered_griglia[(filtered_griglia["SINCOM"] == sincom) & (filtered_griglia["Code"] != packet_code) & (filtered_griglia["Packet_cleaned"].str.lower().str.startswith("pack", na=False)) & (filtered_griglia["Packet_cleaned"].str.lower().str.contains(str(packet_code).lower(), na=False, regex=False))]
+
+
+        # --- Helper function to normalize the search term ---
+        def normalize_search_term(code_str):
+           
+            try:
+                # Convert to float first to handle decimals like '45.0', then to int
+                return str(int(float(code_str)))
+            except (ValueError, TypeError):
+                # If conversion fails, it's not a number, so return the original string
+                return code_str
+
+        
+        search_term = normalize_search_term(packet_code)
+
+        # 2. Use the cleaned search_term to filter the 'Code' column.
+        #    We ensure the 'Code' column is treated as a string to use .str.contains()
+        matched_by_code = filtered_griglia[
+            (filtered_griglia["SINCOM"] == sincom) &
+            (filtered_griglia["Code"].astype(str).str.contains(search_term, na=False, regex=False))
+        ]
+                
+        # Match by packet name (e.g., in 'included' column of griglia)
+        matched_by_packet = filtered_griglia[
+            (filtered_griglia["SINCOM"] == sincom) &
+            (filtered_griglia["Code"] != packet_code) &
+            (filtered_griglia["Packet_cleaned"].str.lower().str.startswith("pack", na=False)) &
+            (filtered_griglia["Packet_cleaned"].str.lower().str.contains(str(packet_code).lower(), na=False, regex=False))
+        ]
+        
+        
+        
         matched_packets = pd.concat([matched_by_code, matched_by_packet])
+
+        
+        
+
         matched_packets['Volume'] = pd.to_numeric(matched_packets['Volume'], errors='coerce')
         matched_packets = matched_packets.dropna(subset=['Volume'])
+
         if not matched_packets.empty:
+            # Important: find the single best match for this packet_code
             matched_packets = matched_packets.loc[[matched_packets['Volume'].idxmax()]]
+           
         else:
             continue
+        
         if matched_packets.index.empty:
-            if mode == "min": return 0
-            else: continue
+            if mode == "min":
+                return 0  # In "min" mode, all packets MUST have a match
+            else:
+                continue # In "max" mode, we can skip missing packets
+
         raw_volume = matched_packets.iloc[0].get("Volume")
-        if len(matched_packets) > 1 and pd.notnull(matched_packets.iloc[1].get("Volume")):
-            raw_volume = matched_packets.iloc[1].get("Volume")
+        
         volume = clean_volume(raw_volume)
+
         if volume is None or volume == "":
-            if mode == "min": return 0
-            else: continue
+            if mode == "min":
+                return 0
+            else:
+                continue
         volume_values.append(volume)
-    if not volume_values: return 0
-    if mode == "min": return min(volume_values) if len(volume_values) == len(unique_packet_values) else 0
-    else: return max(volume_values)
+        
+    if not volume_values:
+        return 0
+    if mode == "min":
+        return min(volume_values) if len(volume_values) == (len(unique_packet_values)) else 0
+    else:
+        # For "max" mode, return the max of whatever we found
+        return max(volume_values)
+    
 
 def main_process(file_61, file_griglia, mapping_file):
     log_message("Starting main process...")
     update_progress(5, "Loading initial data...")
     try:
         df_61, df_griglia_data = load_dataframes(file_61, file_griglia)
-        # If df_61 is empty after filtering, stop the process.
         if df_61.empty:
             log_message("-> No valid data to process after filtering 'Modelo'. Stopping process.")
             return
-
         update_progress(10, "Processing included codes...")
         included_df = process_volume_table(df_61, df_griglia_data, field="included", min_col_name="Code_included")
         update_progress(15, "Processing excluded codes...")
@@ -323,7 +433,11 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
         df_griglia = clean_griglia(df_griglia.copy())
 
         def process_row(row):
-            raw = str(row.get(multivalues_col) or "")
+            raw = str(row.get(multivalues_col) or "").strip()
+            # --- OPTIMIZATION ---
+            # If multivalues is empty or 'none', skip all processing
+            if not raw or raw.lower() == 'none':
+                return ("", "", "")
             tokens = normalize_multivalues(raw)
             if not isinstance(tokens, list): tokens = []
             plant, model = str(row["Plant"]).strip(), str(row["Modelo"]).strip()
@@ -341,34 +455,42 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
                 if (packet_ita, packet_eng) in packets_handled: continue
                 packets_handled.add((packet_ita, packet_eng))
                 temp_df = df_griglia[(df_griglia["Model_cleaned"] == model) & (df_griglia["Plant_cleaned"] == plant) & (df_griglia["Packet"] == packet_ita)]
+                
+                
                 if temp_df.index.empty:
                     temp_df = df_griglia[(df_griglia["Model_cleaned"] == model) & (df_griglia["Plant_cleaned"] == plant) & (df_griglia["Packet"] == packet_eng)]
                     packet_references.add(packet_eng)
                 else: packet_references.add(packet_ita)
                 griglia_multis = {v.lower().strip().replace(" ", "") for mv in temp_df["Multivalues"] if pd.notna(mv) for v in str(mv).split(",")}
                 translated_tokens_from_input = set()
+                
+                # print(griglia_multis)
+                
                 for t in tokens:
                     if not t: continue
                     s, base = t[-1], t[:-1].strip()
                     trans = mapping_dict_resp1.get(base, base) if packet_ita in packet_references else mapping_dict_resp2.get(base, base)
                     if (plant == "FIAPE" and model in ["226", "291", "281"]) and "L" in base: trans = livello_map.get(trans.lower().replace(" ", "").strip(), trans)
+                   
+                    
                     if (plant == "FIASA" and model == "281") and "L" in base: trans = livello_map.get(trans.lower().replace(" ", "").strip(), trans)
                     if plant == "FIAPE" and model == "521" and base == "liv.5": trans = "LL5"
                     if (plant == "FIAPE" and model in ["598", "551"]) and "L" in base[0]:
                         trans = map_598.get(traslate_598(trans.lower().replace(" ", "").strip()), trans)
                     trans = str(trans).lower().replace(" ", "").strip()
+                   
                     translated_tokens_from_input.add(trans)
                     if s == "+": included.add(trans)
                     elif s == "-": excluded.add(trans)
+
                 translated_tokens_lower = {token.strip().lower() for mv in translated_tokens_from_input for token in str(mv).split(",") if token.strip()}
                 if sign == "+":
-                    for mv in translated_tokens_from_input: included.add(mv)
                     for mv in griglia_multis:
                         if mv not in translated_tokens_lower: excluded.add(mv)
                 elif sign == "-":
-                    for mv in translated_tokens_from_input: excluded.add(str(mv).lower().replace(" ", "").strip())
                     for mv in griglia_multis:
                         if mv.lower() not in translated_tokens_lower: included.add(str(mv).lower().replace(" ", "").strip())
+            
             included_strs, excluded_strs = list(map(str, included)), list(map(str, excluded))
             included_lower_set = {val.lower() for val in included_strs}
             excluded_cleaned = [val.lower() for val in excluded_strs if val.lower() not in included_lower_set]
@@ -380,7 +502,10 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     except Exception as e:
         log_message(f"-> ERROR during data extraction: {e}")
         return None
+    
+    df_61.to_excel("Befoer_multi.xlsx", index=False)
     df_61 = map_multi_included_to_griglia(df_61, df_griglia)
+    
     update_progress(60, "Mapping excluded multivalues...")
     df_61 = map_multi_excluded_to_griglia(df_61, df_griglia, df_mapping)
     update_progress(75, "Calculating final volumes...")
@@ -388,22 +513,37 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61["multi_excluded_max_volume"] = pd.to_numeric(df_61["multi_excluded_max_volume"], errors="coerce").fillna(0)
     df_61["Final_Volume_Excluded"] = np.maximum(df_61["Code_excluded"], df_61["multi_excluded_max_volume"])
     df_61["Code_included"] = pd.to_numeric(df_61["Code_included"], errors="coerce")
-    df_61["multi_included_min_volume"] = pd.to_numeric(df_61["multi_included_min_volume"], errors="coerce")
+    df_61["multi_included_min_volume"] = pd.to_numeric(df_61["multi_included_min_volume"], errors="coerce").fillna(0)
     df_61["volume_Head"] = pd.to_numeric(df_61["volume_Head"], errors="coerce")
     df_61["Used_Fallback_HeadVolume"] = False
+
+    df_61.to_excel("AFter_Included.xlsx", index=False)
+
     if all(col in df_61.columns for col in ["included", "Code_included", "multi_included_min_volume"]):
+
+               
         mask_include_fail = df_61["included"].notna() & (df_61["Code_included"].fillna(0) == 0)
         df_61["Final_Volume_include"] = np.where(mask_include_fail, 0, np.maximum(df_61["Code_included"].fillna(0), df_61["multi_included_min_volume"].fillna(0)))
-        mask_min = (df_61["included"].notna() & (df_61["Code_included"] != 0) & (df_61["multi_included_min_volume"] != 0) & ~((df_61["multivalues"].astype(str).str.strip().str.lower().isin(["none", ""])) | (df_61["multivalues"].fillna("").astype(str).str.strip() == "")))
+        
+
+        mask_min = (df_61["included"].notna() & (df_61["Code_included"] != 0) & (df_61["multi_included_min_volume"] != 0) & ~((df_61["multivalues"].astype(str).str.strip().str.lower().isin(["none", ""])) | (df_61["multivalues"].fillna("").astype(str).str.strip() == "")) | (df_61["multivalues"].astype(str).str.strip().str.lower().isin(["MY(26)+","MY(26)-","MY(27)+","MY(27)-","MY(28)+","MY(28)-","MY(29)+","MY(29)-","MY(30)+"])))
+        
         df_61.loc[mask_min, "Final_Volume_include"] = np.minimum(df_61.loc[mask_min, "Code_included"], df_61.loc[mask_min, "multi_included_min_volume"])
-        mask_include_condition = (df_61["Multi_included"].fillna("").astype(str).apply(lambda x: any(val.strip().upper() in markets for val in x.split(",") if val.strip())) & (df_61["included"].notna() | (df_61["Code_included"].fillna(0) == 0)))
-        df_61.loc[mask_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_include_condition, "Code_included"].fillna(0), df_61.loc[mask_include_condition, "multi_included_min_volume"].fillna(0))
+        
+        
+
+        #This is renmove for the sake of markets being recalculated and also
+        
+        # mask_include_condition = (df_61["Multi_included"].fillna("").astype(str).apply(lambda x: any(val.strip().upper() in markets for val in x.split(",") if val.strip())) & (df_61["included"].notna() | (df_61["Code_included"].fillna(0) == 0)))
+        # df_61.loc[mask_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_include_condition, "Code_included"].fillna(0), df_61.loc[mask_include_condition, "multi_included_min_volume"].fillna(0))
+       
         mask_multi_include_condition = ((df_61["included"].astype(str).str.strip().str.lower().isin(["none", ""])) | (df_61["included"].fillna("").astype(str).str.strip() == "")) & (df_61["multi_included_min_volume"] != 0)
         df_61.loc[mask_multi_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_multi_include_condition, "Code_included"].fillna(0), df_61.loc[mask_multi_include_condition, "multi_included_min_volume"].fillna(0))
         if all(col in df_61.columns for col in ["excluded", "Code_excluded", "volume_Head"]):
             fallback_mask = ((df_61["Final_Volume_include"] == 0) & (df_61["Multi_included"].fillna("").str.strip().str.lower().isin(["none", ""])) & (df_61["included"].fillna("").str.strip().str.lower().isin(["none", "", "0"])) & df_61["excluded"].notna() & df_61["volume_Head"].notna())
             df_61.loc[fallback_mask, "Final_Volume_include"] = df_61.loc[fallback_mask, "volume_Head"] - df_61.loc[fallback_mask, "Code_excluded"]
             df_61.loc[fallback_mask, "Used_Fallback_HeadVolume"] = True
+   
     df_61["Final_Volume_include"] = pd.to_numeric(df_61["Final_Volume_include"], errors="coerce")
     df_61["Final_Volume_Excluded"] = pd.to_numeric(df_61.get("Final_Volume_Excluded", 0), errors="coerce").fillna(0)
     df_61["Volume_Mix"] = np.where(df_61["Used_Fallback_HeadVolume"], df_61["Final_Volume_include"], np.maximum(df_61["Final_Volume_include"] - df_61["Final_Volume_Excluded"], 0))
@@ -411,7 +551,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61["Volume_Mix"] = pd.to_numeric(df_61["Volume_Mix"], errors="coerce")
     final_columns = [col for col in ["Modelo", "PN", "Plant", "multivalues", "included", "Multi_excluded", "excluded", "Unique_Key", "VolumeTT"] if col in df_61.columns]
     df_61 = df_61.groupby(final_columns, dropna=False)[["Volume_Mix"]].sum().reset_index()
-    all_empty_mask = ((df_61["multivalues"].fillna("").str.strip().str.lower().isin(["", "none"])) | ((df_61["multivalues"].fillna("").str.strip() != "") & (df_61["Multi_excluded"].fillna("").str.strip() == ""))) & (df_61["included"].fillna("").str.strip() == "") & (df_61["excluded"].fillna("").str.strip() == "")
+    all_empty_mask = ((df_61["multivalues"].fillna("").str.strip().str.lower().isin(["", "none", "nan","MY(26)+","MY(26)-","MY(27)+","MY(27)-","MY(28)+"])) | ((df_61["multivalues"].fillna("").str.strip() != "") & (df_61["Multi_excluded"].fillna("").str.strip() == ""))) & (df_61["included"].fillna("").str.strip() == "") & (df_61["excluded"].fillna("").str.strip() == "")
     df_61.loc[all_empty_mask, "Volume_Mix"] = df_61.loc[all_empty_mask, "VolumeTT"]
     df_61.drop(columns=["Multi_excluded"], inplace=True, errors='ignore')
     df_61['VolumeTT'] = pd.to_numeric(df_61['VolumeTT'], errors='coerce')
@@ -424,6 +564,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     log_message(f"-> Final file saved to {output_folder_volume}")
     log_message(f"-> Total execution time: {execution_minutes:.2f} minutes.")
     
+
 def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
     df_flattened_copy = df_flattened.copy()
@@ -438,6 +579,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
         included_tokens = [val.strip().replace(" ", "") for val in multi_included.split(",") if val.strip()]
         matched_volumes = []
         filtered_griglia = df_griglia[(df_griglia["Model_cleaned"] == model) & (df_griglia["Plant_cleaned"] == plant)]
+
         for token in included_tokens:
             if plant == "FIAPE" and model in ["226", "291", "281"]: token = livello_map.get(token, token)
             if plant == "FIAPE" and model == "521" and token == "liv.5": token = "LL5"
@@ -447,10 +589,16 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
                 token_griglia_rows = filtered_griglia[filtered_griglia["Multivalues_cleaned_list"].apply(lambda x: token in x if isinstance(x, list) else False)]
             else:
                 token_griglia_rows = filtered_griglia[filtered_griglia["Multivalues"].str.lower().str.replace(" ", "").str.contains(token, na=False, regex=False)]
+           
             for _, gr_row in token_griglia_rows.iterrows():
                 if str(gr_row["SINCOM"]).strip() == sincom:
-                    try: matched_volumes.append(float(gr_row.get("Volume Head", "")))
-                    except (ValueError, TypeError): continue
+                    if token in [m.lower() for m in markets]: 
+                        try: matched_volumes.append(float(gr_row.get("Volume", "")))
+                        except (ValueError, TypeError): continue
+                    else :
+                        try: matched_volumes.append(float(gr_row.get("Volume Head", "")))
+                        except (ValueError, TypeError): continue
+
         min_volumes.append(min(matched_volumes) if matched_volumes else np.nan)
     df_flattened_copy["multi_included_min_volume"] = min_volumes
     log_message("-> Mapped multi-included volumes.")
@@ -473,6 +621,7 @@ def map_multi_excluded_to_griglia(df_flattened, griglia_path, df_mapping):
         filtered = griglia_exploded[(griglia_exploded["Model_cleaned"] == model) & (griglia_exploded["Plant_cleaned"] == plant) & (griglia_exploded["SINCOM"] == sincom)]
         if multi_excluded_packets: filtered = filtered[filtered["Packet"].isin(multi_excluded_packets)]
         multivalue_tokens_in_filtered = filtered["Multivalue_token"].astype(str).str.replace(" ", "").str.lower().tolist()
+        
         if any(token in multivalue_tokens_in_filtered for token in multi_excluded_tokens):
             numeric_volumes = pd.to_numeric(filtered["Volume Head"], errors='coerce').dropna().tolist()
             return max(numeric_volumes) if numeric_volumes else 0
@@ -487,7 +636,7 @@ def create_gui():
     global root, progress_bar, progress_label, log_widget, run_button
     root = tk.Tk()
     root.title("Volume Accuracy Processor")
-    root.geometry("600x500")
+    root.geometry("550x420")
     root.configure(bg="#f0f0f0")
     try:
         stellantis_logo_path = resource_path("assets/Vlc_img.png")
@@ -504,8 +653,8 @@ def create_gui():
     progress_bar.pack(pady=10)
     progress_label = tk.Label(root, text="", font=("Helvetica", 10), bg="#f0f0f0")
     progress_label.pack()
-    log_frame = tk.Frame(root, bg="#f0f0f0")
-    log_frame.pack(pady=10, fill="both", expand=True, padx=20)
+    log_frame = tk.Frame(root, bg="#f0f0f0", height=100)
+    log_frame.pack(pady=10, fill="x", padx=20)
     log_widget = scrolledtext.ScrolledText(log_frame, state=tk.DISABLED, height=10, wrap=tk.WORD, font=("Courier New", 9))
     log_widget.pack(fill="both", expand=True)
     run_button = tk.Button(root, text="Select Folders and Run", command=run_process_thread, height=2, width=30, bg="#4CAF50", fg="white", font=("Helvetica", 12, "bold"))
