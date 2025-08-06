@@ -172,22 +172,6 @@ def clean_griglia(df_griglia):
     df_griglia["Code"] = df_griglia["Code"].astype(str).str.strip()
     return df_griglia
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code_excluded"):
     log_message(f"Processing: process_volume_table() for '{field}' field...")
     
@@ -208,9 +192,6 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
 
         packet_values = [val.replace(" ", "").strip().upper() for val in packet_raw.split(",") if val.strip()]
         unique_packet_values = set(packet_values)
-
-        
-
 
         if filtered_griglia.empty:
             row_data = row_61.to_dict()
@@ -259,26 +240,6 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
     log_message(f"-> Finished processing '{field}' volume table.")
     return result_df[preserved_cols]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="max"):
     if not unique_packet_values:
         return 0
@@ -320,12 +281,7 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
             (filtered_griglia["Packet_cleaned"].str.lower().str.contains(str(packet_code).lower(), na=False, regex=False))
         ]
         
-        
-        
         matched_packets = pd.concat([matched_by_code, matched_by_packet])
-
-        
-        
 
         matched_packets['Volume'] = pd.to_numeric(matched_packets['Volume'], errors='coerce')
         matched_packets = matched_packets.dropna(subset=['Volume'])
@@ -532,7 +488,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
         
         
 
-        #This is renmove for the sake of markets being recalculated and also
+        #This is remove for the sake of markets being recalculated and also
         
         # mask_include_condition = (df_61["Multi_included"].fillna("").astype(str).apply(lambda x: any(val.strip().upper() in markets for val in x.split(",") if val.strip())) & (df_61["included"].notna() | (df_61["Code_included"].fillna(0) == 0)))
         # df_61.loc[mask_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_include_condition, "Code_included"].fillna(0), df_61.loc[mask_include_condition, "multi_included_min_volume"].fillna(0))
