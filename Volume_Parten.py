@@ -87,7 +87,6 @@ def select_and_run_process():
         griglia_file = os.path.join(source_folder, "Griglia.xlsx")
         multi_de_para_file = os.path.join(source_folder, "tb_de_para.xlsx")
         
-        print("PRINTING THE FILE PATH HERE", parten)
         
         start_time = time.time()
 
@@ -159,13 +158,15 @@ def load_dataframes(File_Rela_61, File_Griglia):
     # --- End of new section ---
 
     log_message("-> Filtering out rows with empty 'Modelo'...")
-    if not df_61.empty and 'Modelo' in df_61.columns:
+    if not df_61.empty and 'Parten' in df_61.columns:
         initial_rows = len(df_61)
-        mask = ~df_61['Modelo'].str.strip().str.lower().isin(['', 'none', 'nan'])
+        mask = ~df_61['Parten'].str.strip().str.lower().isin(['', 'none', 'nan'])
         df_61 = df_61[mask].copy()
         log_message(f"-> Removed {initial_rows - len(df_61)} invalid rows. Continuing with {len(df_61)} rows.")
     elif 'Modelo' not in df_61.columns:
         log_message("-> WARNING: 'Modelo' column not found. Skipping filter.")
+
+
 
     sheet_griglia = wb_griglia[wb_griglia.sheetnames[0]]
     data_griglia = list(sheet_griglia.iter_rows(values_only=True))
@@ -290,27 +291,23 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
     # Using the trusted logic from your original working code
     df_griglia_clean = clean_griglia(df_griglia.clone())
     mode = "min" if field == "included" else "max"
-
+    
+    
+   
     # Process each row in df_61
     results = []
     for row in df_61.iter_rows(named=True):
-        parten_value = str(row.get("Parten")).strip()
+        model_value = str(row.get("Modelo")).strip()
         plant_parten = str(row.get("Plant")).strip()
-        
         
         packet_raw = str(row.get(field) or "")
 
         filtered_griglia = df_griglia_clean.filter(
-            (pl.col("Model_cleaned") == parten_value) &
+            (pl.col("Model_cleaned") == model_value) &
             (pl.col("Plant_cleaned") == plant_parten)
         )
         
-        
-        print("PRINTING THE FILTERED GRIGLIA HERE", filtered_griglia)
-        break
-        
-        
-        
+      
 
         packet_values = [val.replace(" ", "").strip().upper() for val in packet_raw.split(",") if val.strip()]
         unique_packet_values = set(packet_values)
@@ -447,6 +444,43 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
         return max(volume_values)
     
 
+def create_flat_parten_dataset(df_61, df_griglia):
+    """
+    Creates a flat dataset by exploding df_61 with unique models from df_griglia,
+    but only for models associated with the plants present in df_61.
+    Each row in df_61 is repeated for each relevant unique model, adding a 'Modelo' column,
+    and the 'Plant' column is updated to match the plant from Griglia for consistency.
+    """
+    log_message("Processing: create_flat_parten_dataset()")
+    
+    # Remove rows where Plant is None for cleaning
+    df_61 = df_61.filter(pl.col("Parten").is_not_null())
+    
+    # Clean griglia to ensure Model_cleaned and Plant_cleaned exist
+    df_griglia_clean = clean_griglia(df_griglia.clone())
+    
+    # Get unique plants from df_61
+    unique_plants = df_61.select("Plant").unique().to_series().to_list()
+    unique_plants_cleaned = [str(p).strip() for p in unique_plants]
+    
+    # Filter griglia to only include rows where Plant_cleaned is in unique_plants_cleaned
+    filtered_griglia = df_griglia_clean.filter(
+        pl.col("Plant_cleaned").is_in(unique_plants_cleaned)
+    )
+    
+    # Get unique model-plant pairs from the filtered griglia
+    unique_model_plant_df = filtered_griglia.select("Model_cleaned", "Plant_cleaned").unique()
+    
+    # Drop Plant from df_61 to avoid conflicts
+    df_61_no_plant = df_61.drop("Plant")
+    
+    # Perform cross join to explode df_61_no_plant with the relevant unique model-plant pairs
+    df_flat = df_61_no_plant.join(unique_model_plant_df, how="cross").rename({"Model_cleaned": "Modelo", "Plant_cleaned": "Plant"})
+    
+    log_message(f"-> Created flat dataset with {len(df_flat)} rows (from {len(df_61)} parten rows and {len(unique_model_plant_df)} model-plant pairs for matching plants).")
+    return df_flat
+
+
 def main_process(file_61, file_griglia, mapping_file):
     log_message("Starting main process...")
     update_progress(5, "Loading initial data...")
@@ -458,9 +492,12 @@ def main_process(file_61, file_griglia, mapping_file):
         # Restructure parten to relatorio_61 form
         df_61 = restructure_parten_to_relatorio(df_61, mapping_file)
         
+        # Create flat dataset with models
+        df_61 = create_flat_parten_dataset(df_61, df_griglia_data)
+        
         df_61.to_pandas().to_excel("restructured_parten.xlsx", index=False)
         
-        print("PRINTING THE RESTRUCTURED DF_61 HERE", df_61.head().to_pandas())
+      
         
         update_progress(10, "Processing included codes...")
         included_df = process_volume_table(df_61, df_griglia_data, field="included", min_col_name="Code_included")
@@ -501,6 +538,7 @@ def normalize_multivalues(raw):
 def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     log_message("Processing: extract_and_save_structured_data()")
     update_progress(25, "Loading mapping file...")
+    
     try:
         wb_mapping = load_workbook(mapping_file_path, data_only=True)
         df_mapping = pd.DataFrame(wb_mapping["Coded"].values)
@@ -537,7 +575,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
                 return ("", "", "")
             tokens = normalize_multivalues(raw)
             if not isinstance(tokens, list): tokens = []
-            plant, model = str(row["Plant"]).strip(), str(row["Parten"]).strip()
+            plant, model = str(row["Plant"]).strip(), str(row["Modelo"]).strip()
             included, excluded, packets_handled, packet_references = set(), set(), set(), set()
             for token in tokens:
                 if not token: continue
@@ -549,15 +587,23 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
                 if (plant == "FIAPE" and model in ["598", "551"]) and "L" in token_base[0]:
                     translated = map_598.get(translated.lower().replace(" ", "").strip(), translated)
                 packet_ita, packet_eng = str(mapping_dict_ita.get(token_base, token_base)).strip(), str(mapping_dict_eng.get(token_base, token_base)).strip()
+                # Decide order based on model
+                prefer_eng_first = (plant == "FIAPE" and model in ["598", "551"])  # Adjust based on models that use English packets
+                if prefer_eng_first:
+                    primary_packet, fallback_packet = packet_eng, packet_ita
+                else:
+                    primary_packet, fallback_packet = packet_ita, packet_eng
                 if (packet_ita, packet_eng) in packets_handled: continue
                 packets_handled.add((packet_ita, packet_eng))
-                temp_df = df_griglia_pd[(df_griglia_pd["Model_cleaned"] == model) & (df_griglia_pd["Plant_cleaned"] == plant) & (df_griglia_pd["Packet"] == packet_ita)]
+                temp_df = df_griglia_pd[(df_griglia_pd["Model_cleaned"] == model) & (df_griglia_pd["Plant_cleaned"] == plant) & (df_griglia_pd["Packet"] == primary_packet)]
                 
                 
                 if temp_df.index.empty:
-                    temp_df = df_griglia_pd[(df_griglia_pd["Model_cleaned"] == model) & (df_griglia_pd["Plant_cleaned"] == plant) & (df_griglia_pd["Packet"] == packet_eng)]
-                    packet_references.add(packet_eng)
-                else: packet_references.add(packet_ita)
+                    temp_df = df_griglia_pd[(df_griglia_pd["Model_cleaned"] == model) & (df_griglia_pd["Plant_cleaned"] == plant) & (df_griglia_pd["Packet"] == fallback_packet)]
+                    if not temp_df.index.empty:
+                        packet_references.add(fallback_packet)
+                else:
+                    packet_references.add(primary_packet)
                 griglia_multis = {v.lower().strip().replace(" ", "") for mv in temp_df["Multivalues"] if pd.notna(mv) for v in str(mv).split(",")}
                 translated_tokens_from_input = set()
                 
@@ -591,7 +637,12 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
             included_strs, excluded_strs = list(map(str, included)), list(map(str, excluded))
             included_lower_set = {val.lower() for val in included_strs}
             excluded_cleaned = [val.lower() for val in excluded_strs if val.lower() not in included_lower_set]
-            return (",".join(sorted(included_strs)), ",".join(sorted(excluded_cleaned)), ",".join(sorted(packet_references)))
+            
+            # --- ADD THIS LOGGING FOR DEBUGGING ---
+            packets_str = ",".join(sorted(packet_references)) if packet_references else "NONE"
+            log_message(f"Row {row.name}: Model '{model}', Plant '{plant}', Multivalues '{raw}', Packets: '{packets_str}'")
+            
+            return (",".join(sorted(included_strs)), ",".join(sorted(excluded_cleaned)), packets_str)
         results = df_61_pd.apply(process_row, axis=1, result_type='expand')
         df_61_pd[["Multi_included", "Multi_excluded", "Multi_excluded_packets"]] = results
         # Convert back to Polars
@@ -604,7 +655,10 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     
     # Convert to pandas for Excel output and complex calculations
     df_61_pd = df_61.to_pandas()
+    
     df_61_pd.to_excel("Befoer_multi_parten.xlsx", index=False)
+    
+    
     df_61_pd = map_multi_included_to_griglia(df_61_pd, df_griglia.to_pandas())
     
     update_progress(60, "Mapping excluded multivalues...")
@@ -665,9 +719,9 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     log_message(f"-> Final file saved to {output_folder_volume}")
     log_message(f"-> Total execution time: {execution_minutes:.2f} minutes.")
     
-
 def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
+    df_flattened.to_excel("Multi_Included_paryt_parten.xlsx", index=False)
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
     df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
@@ -675,7 +729,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
     df_griglia["Multivalues_cleaned_list"] = df_griglia["Multivalues"].astype(str).str.lower().str.replace(r'\s+', '', regex=True).str.split(",")
     min_volumes = []
     for _, row in df_flattened_copy.iterrows():
-        model, plant, sincom = row["Parten"], str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
+        model, plant, sincom = row["Modelo"], str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
         multi_included = str(row.get("Multi_included", "")).lower()
         included_tokens = [val.strip().replace(" ", "") for val in multi_included.split(",") if val.strip()]
         matched_volumes = []
@@ -704,6 +758,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
     df_flattened_copy["multi_included_min_volume"] = min_volumes
     log_message("-> Mapped multi-included volumes.")
     return df_flattened_copy
+
 
 def map_multi_excluded_to_griglia(df_flattened, griglia_path, df_mapping):
     log_message("Processing: map_multi_excluded_to_griglia()")

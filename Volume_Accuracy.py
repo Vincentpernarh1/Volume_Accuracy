@@ -485,7 +485,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     
     # Convert to pandas for Excel output and complex calculations
     df_61_pd = df_61.to_pandas()
-    df_61_pd.to_excel("Before_multi.xlsx", index=False)
+    df_61_pd.to_excel("Before_multi_excluded.xlsx", index=False)
     df_61_pd = map_multi_included_to_griglia(df_61_pd, df_griglia.to_pandas())
     
     update_progress(60, "Mapping excluded multivalues...")
@@ -549,6 +549,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
 
 def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
+    df_flattened.to_excel("Multi_Included_teste.xlsx", index=False)
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
     df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
