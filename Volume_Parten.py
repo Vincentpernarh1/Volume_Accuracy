@@ -75,18 +75,28 @@ def select_and_run_process():
             return
 
         output_folder_volume = os.path.join(output_folder, "Mix_Parten.xlsx")
-        relatorio_file = os.path.join(source_folder, "Parten.xlsx")
+        
+        for i in os.listdir(source_folder):
+            if not i.startswith("~$") and ("Parten" in i or "parten" in i or  "PARTEN" in i):
+                parten_path = i
+                
+                
+           
+        parten = os.path.join(source_folder, parten_path)
+        
         griglia_file = os.path.join(source_folder, "Griglia.xlsx")
         multi_de_para_file = os.path.join(source_folder, "tb_de_para.xlsx")
         
+        print("PRINTING THE FILE PATH HERE", parten)
+        
         start_time = time.time()
 
-        missing = [f for f in [relatorio_file, griglia_file, multi_de_para_file] if not os.path.exists(f)]
+        missing = [f for f in [parten, griglia_file, multi_de_para_file] if not os.path.exists(f)]
         if missing:
             raise FileNotFoundError(f"Missing required files: {', '.join(os.path.basename(f) for f in missing)}")
 
         root.after(0, progress_bar.stop)
-        main_process(relatorio_file, griglia_file, multi_de_para_file)
+        main_process(parten, griglia_file, multi_de_para_file)
         
         update_progress(100, "Completed!")
         messagebox.showinfo("Success", f"Processing complete.\nExecution time: {execution_minutes:.2f} minutes")
@@ -133,10 +143,10 @@ def load_dataframes(File_Rela_61, File_Griglia):
     wb_61 = load_workbook(filename=File_Rela_61, read_only=True, data_only=True)
     wb_griglia = load_workbook(filename=File_Griglia, read_only=True, data_only=True)
 
-    if "61" not in wb_61.sheetnames:
-        raise ValueError(f"Sheet '61' not found in {File_Rela_61}")
+    if "parten" not in wb_61.sheetnames:
+        raise ValueError(f"Sheet 'parten' not found in {File_Rela_61}")
 
-    data_61 = list(wb_61["61"].iter_rows(values_only=True))
+    data_61 = list(wb_61["parten"].iter_rows(values_only=True))
     df_61 = pd.DataFrame(data_61[1:], columns=data_61[0]).astype(str) if len(data_61) > 1 else pd.DataFrame()
 
     # --- NEW: Clean up the '.0' from specific columns ---
@@ -168,6 +178,99 @@ def load_dataframes(File_Rela_61, File_Griglia):
     log_message("✅ DataFrames loaded and prepared successfully.")
     return df_61_pl, df_griglia_pl
 
+def restructure_parten_to_relatorio(df_parten, mapping_file_path):
+    """
+    Restructures the parten DataFrame (only Plant and Parten) into relatorio_61 form.
+    Parses Parten using tb_de_para to separate multivalues, included, excluded.
+    Groups by Plant and Parten (as Modelo), aggregates, and outputs matching columns.
+    """
+    log_message("Processing: restructure_parten_to_relatorio()")
+    
+    # Load mapping file (tb_de_para.xlsx)
+    wb_mapping = load_workbook(mapping_file_path, data_only=True)
+    df_mapping = pd.DataFrame(wb_mapping["Coded"].values)
+    df_mapping.columns = df_mapping.iloc[0]
+    df_mapping = df_mapping[1:].reset_index(drop=True)
+    df_mapping["MultiValues"] = df_mapping["MultiValues"].astype(str).str.strip()
+    mapping_set = set(df_mapping["MultiValues"].dropna())  # Set of known multivalues for fast lookup
+    
+    # Rename columns for consistency
+    df_parten = df_parten.rename({"Planta": "Plant"})  # Keep Parten as Parten
+    
+    # Group by Plant and Parten
+    grouped = df_parten.group_by(["Plant", "Parten"])
+    
+    results = []
+    for group_key, group_df in grouped:
+        plant, modelo = group_key
+        
+        # Parse the raw modelo (Parten) string
+        raw_parten = str(modelo).strip()
+        multivalues_tokens = []
+        excluded_tokens = []
+        included_tokens = []
+        
+        if raw_parten:
+            # Split by comma, but respect parentheses
+            def split_respecting_parens(s, delimiter=','):
+                result = []
+                current = ''
+                level = 0
+                for char in s:
+                    if char == '(':
+                        level += 1
+                    elif char == ')':
+                        level -= 1
+                    elif char == delimiter and level == 0:
+                        result.append(current)
+                        current = ''
+                        continue
+                    current += char
+                result.append(current)
+                return [r.strip() for r in result if r.strip()]
+            
+            tokens = split_respecting_parens(raw_parten)
+            
+            for token in tokens:
+                if not token:
+                    continue
+                # Extract base (remove sign) and sign
+                sign = token[-1] if token[-1] in ['+', '-'] else ''
+                base = token[:-1] if sign else token
+                base = base.strip()
+                # If base is like (values), extract values
+                if base.startswith('(') and base.endswith(')'):
+                    base = base[1:-1]
+                
+                # Check if base is in mapping (multivalues)
+                if base in mapping_set:
+                    multivalues_tokens.append(token)  # Keep full token for multivalues
+                else:
+                    # Optional: + for included, - for excluded
+                    if sign == '+':
+                        included_tokens.append(base)
+                    elif sign == '-':
+                        excluded_tokens.append(base)
+                    # If no sign or invalid, skip or handle as needed
+        
+        # Join parsed tokens
+        multivalues = ",".join(multivalues_tokens) if multivalues_tokens else ""
+        excluded = ",".join(sorted(set(excluded_tokens))) if excluded_tokens else ""
+        included = ",".join(sorted(set(included_tokens))) if included_tokens else ""
+        
+        results.append({
+            "Plant": plant,
+            "multivalues": multivalues,
+            "included": included,
+            "excluded": excluded,
+            "Parten": modelo
+        })
+    
+    # Convert to Polars DataFrame
+    result_df = pl.DataFrame(results)
+    log_message(f"-> Restructured {len(result_df)} rows from parten to relatorio_61 form.")
+    return result_df
+
 def clean_griglia(df_griglia):
     df_griglia = df_griglia.with_columns([
         pl.col("included").cast(pl.Utf8).str.to_uppercase().str.replace_all(r'\s+', '', literal=False).alias("Packet_cleaned"),
@@ -191,14 +294,23 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
     # Process each row in df_61
     results = []
     for row in df_61.iter_rows(named=True):
-        model_61 = str(row.get("Modelo")).strip()
-        plant_61 = str(row.get("Plant")).strip()
+        parten_value = str(row.get("Parten")).strip()
+        plant_parten = str(row.get("Plant")).strip()
+        
+        
         packet_raw = str(row.get(field) or "")
 
         filtered_griglia = df_griglia_clean.filter(
-            (pl.col("Model_cleaned") == model_61) &
-            (pl.col("Plant_cleaned") == plant_61)
+            (pl.col("Model_cleaned") == parten_value) &
+            (pl.col("Plant_cleaned") == plant_parten)
         )
+        
+        
+        print("PRINTING THE FILTERED GRIGLIA HERE", filtered_griglia)
+        break
+        
+        
+        
 
         packet_values = [val.replace(" ", "").strip().upper() for val in packet_raw.split(",") if val.strip()]
         unique_packet_values = set(packet_values)
@@ -343,6 +455,13 @@ def main_process(file_61, file_griglia, mapping_file):
         if df_61.is_empty():
             log_message("-> No valid data to process after filtering 'Modelo'. Stopping process.")
             return
+        # Restructure parten to relatorio_61 form
+        df_61 = restructure_parten_to_relatorio(df_61, mapping_file)
+        
+        df_61.to_pandas().to_excel("restructured_parten.xlsx", index=False)
+        
+        print("PRINTING THE RESTRUCTURED DF_61 HERE", df_61.head().to_pandas())
+        
         update_progress(10, "Processing included codes...")
         included_df = process_volume_table(df_61, df_griglia_data, field="included", min_col_name="Code_included")
         update_progress(15, "Processing excluded codes...")
@@ -418,7 +537,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
                 return ("", "", "")
             tokens = normalize_multivalues(raw)
             if not isinstance(tokens, list): tokens = []
-            plant, model = str(row["Plant"]).strip(), str(row["Modelo"]).strip()
+            plant, model = str(row["Plant"]).strip(), str(row["Parten"]).strip()
             included, excluded, packets_handled, packet_references = set(), set(), set(), set()
             for token in tokens:
                 if not token: continue
@@ -556,7 +675,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
     df_griglia["Multivalues_cleaned_list"] = df_griglia["Multivalues"].astype(str).str.lower().str.replace(r'\s+', '', regex=True).str.split(",")
     min_volumes = []
     for _, row in df_flattened_copy.iterrows():
-        model, plant, sincom = row["Modelo"], str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
+        model, plant, sincom = row["Parten"], str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
         multi_included = str(row.get("Multi_included", "")).lower()
         included_tokens = [val.strip().replace(" ", "") for val in multi_included.split(",") if val.strip()]
         matched_volumes = []
@@ -596,7 +715,7 @@ def map_multi_excluded_to_griglia(df_flattened, griglia_path, df_mapping):
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["multi_excluded_max_volume"] = 0
     def apply_row(row):
-        model, plant, sincom = str(row["Modelo"]).strip().lower(), str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
+        model, plant, sincom = str(row["Parten"]).strip().lower(), str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
         multi_excluded_tokens = [t.strip().replace(" ", "").lower() for t in str(row["Multi_excluded"]).split(",") if t.strip()]
         multi_excluded_packets = [p.strip() for p in str(row["Multi_excluded_packets"]).split(",") if p.strip()] if pd.notna(row["Multi_excluded_packets"]) else []
         if not multi_excluded_tokens: return 0
