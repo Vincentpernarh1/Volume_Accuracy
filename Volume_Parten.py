@@ -770,7 +770,7 @@ def map_multi_excluded_to_griglia(df_flattened, griglia_path, df_mapping):
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["multi_excluded_max_volume"] = 0
     def apply_row(row):
-        model, plant, sincom = str(row["Parten"]).strip().lower(), str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
+        model, plant, sincom = str(row["Modelo"]).strip().lower(), str(row["Plant"]).strip(), str(row["SINCOM"]).strip()
         multi_excluded_tokens = [t.strip().replace(" ", "").lower() for t in str(row["Multi_excluded"]).split(",") if t.strip()]
         multi_excluded_packets = [p.strip() for p in str(row["Multi_excluded_packets"]).split(",") if p.strip()] if pd.notna(row["Multi_excluded_packets"]) else []
         if not multi_excluded_tokens: return 0
