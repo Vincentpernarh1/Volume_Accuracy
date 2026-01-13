@@ -162,10 +162,8 @@ def load_dataframes(File_Rela_61, File_Griglia):
         initial_rows = len(df_61)
         mask = ~df_61['Parten'].str.strip().str.lower().isin(['', 'none', 'nan'])
         df_61 = df_61[mask].copy()
-        log_message(f"-> Removed {initial_rows - len(df_61)} invalid rows. Continuing with {len(df_61)} rows.")
     elif 'Modelo' not in df_61.columns:
         log_message("-> WARNING: 'Modelo' column not found. Skipping filter.")
-
 
 
     sheet_griglia = wb_griglia[wb_griglia.sheetnames[0]]
@@ -494,11 +492,7 @@ def main_process(file_61, file_griglia, mapping_file):
         
         # Create flat dataset with models
         df_61 = create_flat_parten_dataset(df_61, df_griglia_data)
-        
-        df_61.to_pandas().to_excel("restructured_parten.xlsx", index=False)
-        
       
-        
         update_progress(10, "Processing included codes...")
         included_df = process_volume_table(df_61, df_griglia_data, field="included", min_col_name="Code_included")
         update_progress(15, "Processing excluded codes...")
@@ -640,8 +634,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
             
             # --- ADD THIS LOGGING FOR DEBUGGING ---
             packets_str = ",".join(sorted(packet_references)) if packet_references else "NONE"
-            log_message(f"Row {row.name}: Model '{model}', Plant '{plant}', Multivalues '{raw}', Packets: '{packets_str}'")
-            
             return (",".join(sorted(included_strs)), ",".join(sorted(excluded_cleaned)), packets_str)
         results = df_61_pd.apply(process_row, axis=1, result_type='expand')
         df_61_pd[["Multi_included", "Multi_excluded", "Multi_excluded_packets"]] = results
@@ -652,11 +644,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     except Exception as e:
         log_message(f"-> ERROR during data extraction: {e}")
         return None
-    
-    # Convert to pandas for Excel output and complex calculations
-    df_61_pd = df_61.to_pandas()
-    
-    df_61_pd.to_excel("Befoer_multi_parten.xlsx", index=False)
     
     
     df_61_pd = map_multi_included_to_griglia(df_61_pd, df_griglia.to_pandas())
@@ -672,8 +659,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61_pd["volume_Head"] = pd.to_numeric(df_61_pd["volume_Head"], errors="coerce")
     df_61_pd["Used_Fallback_HeadVolume"] = False
 
-    df_61_pd.to_excel("AFter_Included-parten.xlsx", index=False)
-
     if all(col in df_61_pd.columns for col in ["included", "Code_included", "multi_included_min_volume"]):
 
                
@@ -686,12 +671,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
         df_61_pd.loc[mask_min, "Final_Volume_include"] = np.minimum(df_61_pd.loc[mask_min, "Code_included"], df_61_pd.loc[mask_min, "multi_included_min_volume"])
         
         
-
-        #This is remove for the sake of markets being recalculated and also
-        
-        # mask_include_condition = (df_61["Multi_included"].fillna("").astype(str).apply(lambda x: any(val.strip().upper() in markets for val in x.split(",") if val.strip())) & (df_61["included"].notna() | (df_61["Code_included"].fillna(0) == 0)))
-        # df_61.loc[mask_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_include_condition, "Code_included"].fillna(0), df_61.loc[mask_include_condition, "multi_included_min_volume"].fillna(0))
-       
         mask_multi_include_condition = ((df_61_pd["included"].astype(str).str.strip().str.lower().isin(["none", ""])) | (df_61_pd["included"].fillna("").astype(str).str.strip() == "")) & (df_61_pd["multi_included_min_volume"] != 0)
         df_61_pd.loc[mask_multi_include_condition, "Final_Volume_include"] = np.maximum(df_61_pd.loc[mask_multi_include_condition, "Code_included"].fillna(0), df_61_pd.loc[mask_multi_include_condition, "multi_included_min_volume"].fillna(0))
         if all(col in df_61_pd.columns for col in ["excluded", "Code_excluded", "volume_Head"]):
@@ -704,14 +683,18 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61_pd["Volume_Mix"] = np.where(df_61_pd["Used_Fallback_HeadVolume"], df_61_pd["Final_Volume_include"], np.maximum(df_61_pd["Final_Volume_include"] - df_61_pd["Final_Volume_Excluded"], 0))
     update_progress(90, "Aggregating results...")
     df_61_pd["Volume_Mix"] = pd.to_numeric(df_61_pd["Volume_Mix"], errors="coerce")
-    final_columns = [col for col in ["Modelo", "PN", "Plant", "multivalues", "included", "Multi_excluded", "excluded", "Unique_Key", "VolumeTT"] if col in df_61_pd.columns]
+    final_columns = [col for col in ["Modelo", "PN", "Plant", "multivalues", "included", "Multi_excluded", "excluded", "Unique_Key", "VolumeTT", "Parten"] if col in df_61_pd.columns]
     df_61_pd = df_61_pd.groupby(final_columns, dropna=False)[["Volume_Mix"]].sum().reset_index()
     all_empty_mask = ((df_61_pd["multivalues"].fillna("").str.strip().str.lower().isin(["", "none", "nan","MY(26)+","MY(26)-","MY(27)+","MY(27)-","MY(28)+"])) | ((df_61_pd["multivalues"].fillna("").str.strip() != "") & (df_61_pd["Multi_excluded"].fillna("").str.strip() == ""))) & (df_61_pd["included"].fillna("").str.strip() == "") & (df_61_pd["excluded"].fillna("").str.strip() == "")
     df_61_pd.loc[all_empty_mask, "Volume_Mix"] = df_61_pd.loc[all_empty_mask, "VolumeTT"]
     df_61_pd.drop(columns=["Multi_excluded"], inplace=True, errors='ignore')
     df_61_pd['VolumeTT'] = pd.to_numeric(df_61_pd['VolumeTT'], errors='coerce')
     df_61_pd["Mix"] = df_61_pd["Volume_Mix"].divide(df_61_pd["VolumeTT"]).fillna(0)
+    df_61_pd = df_61_pd[df_61_pd["Volume_Mix"] > 0]
     update_progress(95, "Saving final file...")
+    # Rename and select final columns
+    df_61_pd = df_61_pd.rename(columns={"Parten": "parten", "Modelo": "model", "VolumeTT": "Volume TT"})
+    df_61_pd = df_61_pd[["parten", "model", "Plant", "Volume TT", "Volume_Mix", "Mix"]]
     df_61_pd.to_excel(output_folder_volume, index=False)
     global execution_minutes
     end_time = time.time()
@@ -721,7 +704,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     
 def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
-    df_flattened.to_excel("Multi_Included_paryt_parten.xlsx", index=False)
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
     df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
