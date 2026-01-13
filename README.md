@@ -148,7 +148,7 @@ python Volume_Accuracy.py
 
 ```powershell
 # Build using PyInstaller
-pyinstaller --onefile --windowed --add-data "assets;assets" Volume_Accuracy.py
+pyinstaller --onefile --noconsole --icon "C:/Users/perna/Desktop/STALLANTIS/Volume_Accuracy/icon.ico"  --add-data  "assets;assets" Volume_Accuracy.py
 
 # Run the executable
 .\dist\Volume_Accuracy.exe
