@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 import sys
 import polars as pl
 import polars as pl
+import Volume_Parten
 
 # --- Global variables ---
 start_time = 0
@@ -53,6 +54,47 @@ def update_progress(percentage, text=""):
             progress_label.config(text=f"{text} {int(percentage)}%")
         ))
 
+def choose_calculation_type(parent):
+    """Custom dialog to choose calculation type."""
+    dialog = tk.Toplevel(parent)
+    dialog.title("Choose Calculation Type")
+    dialog.geometry("350x200")
+    dialog.resizable(False, False)
+    dialog.transient(parent)
+    dialog.grab_set()
+    
+    # Center the dialog
+    screen_width = parent.winfo_screenwidth()
+    screen_height = parent.winfo_screenheight()
+    x = (screen_width - 350) // 2
+    y = (screen_height - 200) // 2
+    dialog.geometry(f"350x200+{x}+{y}")
+    
+    # STELLANTIS styling
+    stellantis_blue = "#003DA5"
+    stellantis_orange = "#FF6600"
+    
+    tk.Label(dialog, text="Select Calculation Type", font=("Segoe UI", 14, "bold"), fg=stellantis_blue).pack(pady=10)
+    
+    var = tk.StringVar(value="normal")
+    
+    frame = tk.Frame(dialog)
+    frame.pack(pady=10)
+    
+    tk.Radiobutton(frame, text="Normal (Relatorio_61)", variable=var, value="normal", font=("Segoe UI", 11)).pack(anchor=tk.W, pady=5)
+    tk.Radiobutton(frame, text="Parten", variable=var, value="parten", font=("Segoe UI", 11)).pack(anchor=tk.W, pady=5)
+    
+    def on_ok():
+        dialog.result = var.get()
+        dialog.destroy()
+    
+    button_frame = tk.Frame(dialog)
+    button_frame.pack(pady=10)
+    tk.Button(button_frame, text="Select", command=on_ok, bg=stellantis_blue, fg="white", font=("Segoe UI", 10, "bold"), width=10).pack()
+    
+    parent.wait_window(dialog)
+    return getattr(dialog, 'result', 'normal')
+
 # --- Core Application Logic ---
 def select_and_run_process():
     global start_time, output_folder_volume, execution_minutes
@@ -74,22 +116,29 @@ def select_and_run_process():
             log_message("Process cancelled: No output folder selected.")
             return
 
-        output_folder_volume = os.path.join(output_folder, "Volume_Accuracy.xlsx")
-        relatorio_file = os.path.join(source_folder, "Relatorio_61.xlsx")
-        griglia_file = os.path.join(source_folder, "Griglia.xlsx")
-        multi_de_para_file = os.path.join(source_folder, "tb_de_para.xlsx")
-        
-        start_time = time.time()
+        # Prompt for calculation type
+        calculation_type = choose_calculation_type(root)
 
-        missing = [f for f in [relatorio_file, griglia_file, multi_de_para_file] if not os.path.exists(f)]
-        if missing:
-            raise FileNotFoundError(f"Missing required files: {', '.join(os.path.basename(f) for f in missing)}")
+        if calculation_type == 'normal':
+            output_folder_volume = os.path.join(output_folder, "Volume_Accuracy.xlsx")
+            relatorio_file = os.path.join(source_folder, "Relatorio_61.xlsx")
+            griglia_file = os.path.join(source_folder, "Griglia.xlsx")
+            multi_de_para_file = os.path.join(source_folder, "tb_de_para.xlsx")
+            
+            start_time = time.time()
 
-        root.after(0, progress_bar.stop)
-        main_process(relatorio_file, griglia_file, multi_de_para_file)
-        
-        update_progress(100, "Completed!")
-        messagebox.showinfo("Success", f"Processing complete.\nExecution time: {execution_minutes:.2f} minutes")
+            missing = [f for f in [relatorio_file, griglia_file, multi_de_para_file] if not os.path.exists(f)]
+            if missing:
+                raise FileNotFoundError(f"Missing required files: {', '.join(os.path.basename(f) for f in missing)}")
+
+            root.after(0, progress_bar.stop)
+            main_process(relatorio_file, griglia_file, multi_de_para_file)
+            
+            update_progress(100, "Completed!")
+            messagebox.showinfo("Success", f"Normal processing complete.\nExecution time: {execution_minutes:.2f} minutes")
+        else:
+            # Call Parten process
+            Volume_Parten.run_parten_process(source_folder, output_folder, log_widget, progress_bar, progress_label, run_button, root)
 
     except Exception as e:
         log_message(f"ERROR: {e}")
@@ -153,7 +202,7 @@ def load_dataframes(File_Rela_61, File_Griglia):
         initial_rows = len(df_61)
         mask = ~df_61['Modelo'].str.strip().str.lower().isin(['', 'none', 'nan'])
         df_61 = df_61[mask].copy()
-        log_message(f"-> Removed {initial_rows - len(df_61)} invalid rows. Continuing with {len(df_61)} rows.")
+       
     elif 'Modelo' not in df_61.columns:
         log_message("-> WARNING: 'Modelo' column not found. Skipping filter.")
 
@@ -498,7 +547,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61_pd["volume_Head"] = pd.to_numeric(df_61_pd["volume_Head"], errors="coerce")
     df_61_pd["Used_Fallback_HeadVolume"] = False
 
-    df_61_pd.to_excel("After_Included.xlsx", index=False)
+    # df_61_pd.to_excel("After_Included.xlsx", index=False)
 
     if all(col in df_61_pd.columns for col in ["included", "Code_included", "multi_included_min_volume"]):
 
@@ -548,7 +597,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
 
 def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
-    df_flattened.to_excel("Multi_Included_teste.xlsx", index=False)
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
     df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
@@ -618,7 +666,14 @@ def create_gui():
     global root, progress_bar, progress_label, log_widget, run_button
     root = tk.Tk()
     root.title("Volume Accuracy Processor")
-    root.geometry("700x550")
+    # Center the window on the screen
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    width = 700
+    height = 550
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 4
+    root.geometry(f"{width}x{height}+{x}+{y}")
     root.resizable(True, True)
     
     # STELLANTIS Colors
@@ -697,7 +752,7 @@ def create_gui():
     button_frame.pack(pady=4, fill=tk.X)
     
     run_button = ttk.Button(button_frame, text="▶ Select Folders and Run", command=run_process_thread, style='TButton')
-    run_button.pack(side=tk.LEFT, padx=5)
+    run_button.pack(anchor=tk.CENTER, padx=5)
     
     # Log section with accent
     log_frame = ttk.LabelFrame(main_frame, text="📋 Activity Log", padding="13")

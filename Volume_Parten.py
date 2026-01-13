@@ -54,8 +54,14 @@ def update_progress(percentage, text=""):
         ))
 
 # --- Core Application Logic ---
-def select_and_run_process():
-    global start_time, output_folder_volume, execution_minutes
+def run_parten_process(source_folder, output_folder, log_widget_param, progress_bar_param, progress_label_param, run_button_param, root_param):
+    global start_time, output_folder_volume, execution_minutes, log_widget, progress_bar, progress_label, run_button, root
+    # Set the GUI globals to the passed parameters
+    log_widget = log_widget_param
+    progress_bar = progress_bar_param
+    progress_label = progress_label_param
+    run_button = run_button_param
+    root = root_param
     try:
         root.after(0, lambda: (
             log_widget.config(state=tk.NORMAL),
@@ -64,24 +70,12 @@ def select_and_run_process():
         ))
         update_progress(0, "Ready")
 
-        source_folder = filedialog.askdirectory(title="Select Folder with Input Files")
-        if not source_folder:
-            log_message("Process cancelled: No source folder selected.")
-            return
-
-        output_folder = filedialog.askdirectory(title="Select Output Folder")
-        if not output_folder:
-            log_message("Process cancelled: No output folder selected.")
-            return
-
         output_folder_volume = os.path.join(output_folder, "Mix_Parten.xlsx")
         
         for i in os.listdir(source_folder):
             if not i.startswith("~$") and ("Parten" in i or "parten" in i or  "PARTEN" in i):
                 parten_path = i
                 
-                
-           
         parten = os.path.join(source_folder, parten_path)
         
         griglia_file = os.path.join(source_folder, "Griglia.xlsx")
@@ -107,11 +101,7 @@ def select_and_run_process():
         if run_button: root.after(0, lambda: run_button.config(state="normal"))
         if progress_bar: root.after(0, progress_bar.stop)
 
-def run_process_thread():
-    run_button.config(state="disabled")
-    progress_bar.start()
-    progress_label.config(text="Awaiting folder selection...")
-    threading.Thread(target=select_and_run_process, daemon=True).start()
+
 
 # --- Data Dictionaries and Cleaning Functions ---
 livello_map = {"liv.0":"LL0","liv.1":"LL1","liv.2":"LL2","liv.3":"LL3","liv.4":"LL4","liv.5":"LL5","liv.6":"LL6","liv.7":"LL7","liv.8":"LL8","liv.9":"LL9","liv.10":"LL10","liv.11":"LL11","liv.12":"LL12","liv.13":"LL13"}
@@ -770,34 +760,3 @@ def map_multi_excluded_to_griglia(df_flattened, griglia_path, df_mapping):
     log_message("-> Mapped multi-excluded volumes.")
     return df_flattened_copy
 
-def create_gui():
-    global root, progress_bar, progress_label, log_widget, run_button
-    root = tk.Tk()
-    root.title("Volume Accuracy Processor")
-    root.geometry("550x420")
-    root.configure(bg="#f0f0f0")
-    try:
-        stellantis_logo_path = resource_path("assets/Vlc_img.png")
-        img_stellantis_logo = Image.open(stellantis_logo_path)
-        img_stellantis_logo = img_stellantis_logo.resize((530, 40), Image.Resampling.LANCZOS)
-        photo_img_stellantis_logo = ImageTk.PhotoImage(img_stellantis_logo)
-        root.image = photo_img_stellantis_logo
-        tk.Label(root, image=photo_img_stellantis_logo, bg="#f0f0f0").pack(pady=10)
-    except Exception as e:
-        print(f"Warning: Could not load image. {e}")
-        tk.Label(root, text="STELLANTIS", font=("Helvetica", 16, "bold"), bg="#f0f0f0").pack(pady=10)
-    tk.Label(root, text="MIX GENERATION", font=("Helvetica", 14, "bold"), bg="#f0f0f0").pack()
-    progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
-    progress_bar.pack(pady=10)
-    progress_label = tk.Label(root, text="", font=("Helvetica", 10), bg="#f0f0f0")
-    progress_label.pack()
-    log_frame = tk.Frame(root, bg="#f0f0f0", height=100)
-    log_frame.pack(pady=10, fill="x", padx=20)
-    log_widget = scrolledtext.ScrolledText(log_frame, state=tk.DISABLED, height=10, wrap=tk.WORD, font=("Courier New", 9))
-    log_widget.pack(fill="both", expand=True)
-    run_button = tk.Button(root, text="Select Folders and Run", command=run_process_thread, height=2, width=30, bg="#4CAF50", fg="white", font=("Helvetica", 12, "bold"))
-    run_button.pack(pady=20)
-    root.mainloop()
-
-if __name__ == "__main__":
-    create_gui()
