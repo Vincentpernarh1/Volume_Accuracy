@@ -618,29 +618,113 @@ def create_gui():
     global root, progress_bar, progress_label, log_widget, run_button
     root = tk.Tk()
     root.title("Volume Accuracy Processor")
-    root.geometry("550x420")
-    root.configure(bg="#f0f0f0")
+    root.geometry("700x550")
+    root.resizable(True, True)
+    
+    # STELLANTIS Colors
+    stellantis_blue = "#003DA5"
+    stellantis_orange = "#FF6600"
+    dhl_yellow = "#FFCC00"
+    
+    # Set modern color scheme with STELLANTIS theme
+    style = ttk.Style()
+    style.theme_use('clam')
+    
+    # Configure button style with STELLANTIS blue
+    style.configure('TButton', background=stellantis_blue, foreground="white", relief="flat", padding=6, font=("Segoe UI", 10, "bold"))
+    style.map('TButton', background=[('active', stellantis_orange)])
+    
+    # Configure progressbar with STELLANTIS colors
+    style.configure('TProgressbar', background=stellantis_blue, troughcolor='#E8E8E8', bordercolor='#CCCCCC', lightcolor=stellantis_orange, darkcolor=stellantis_blue)
+    
+    # Configure labels with theme colors
+    style.configure('Title.TLabel', font=("Segoe UI", 16, "bold"), foreground=stellantis_blue)
+
+    # --- Main container ---
+    container = tk.Frame(root, bg="white")
+    container.pack(fill=tk.BOTH, expand=True)
+
+    # --- Header with STELLANTIS accent ---
+    header_frame = tk.Frame(container, bg=stellantis_blue, height=60)
+    header_frame.pack(fill=tk.X, padx=0, pady=0)
+    header_frame.pack_propagate(False)
+    
+    # Load and place the STELLANTIS logo image to fill the header
+    img_stellantis_logo_original = None
     try:
         stellantis_logo_path = resource_path("assets/Vlc_img.png")
-        img_stellantis_logo = Image.open(stellantis_logo_path)
-        img_stellantis_logo = img_stellantis_logo.resize((530, 40), Image.Resampling.LANCZOS)
+        img_stellantis_logo_original = Image.open(stellantis_logo_path)
+        img_stellantis_logo = img_stellantis_logo_original.resize((700, 60), Image.Resampling.LANCZOS)
         photo_img_stellantis_logo = ImageTk.PhotoImage(img_stellantis_logo)
         root.image = photo_img_stellantis_logo
-        tk.Label(root, image=photo_img_stellantis_logo, bg="#f0f0f0").pack(pady=10)
+        logo_label = tk.Label(header_frame, image=photo_img_stellantis_logo, bg=stellantis_blue)
+        logo_label.pack(fill=tk.BOTH, expand=True)
     except Exception as e:
         print(f"Warning: Could not load image. {e}")
-        tk.Label(root, text="STELLANTIS", font=("Helvetica", 16, "bold"), bg="#f0f0f0").pack(pady=10)
-    tk.Label(root, text="MIX GENERATION", font=("Helvetica", 14, "bold"), bg="#f0f0f0").pack()
-    progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
-    progress_bar.pack(pady=10)
-    progress_label = tk.Label(root, text="", font=("Helvetica", 10), bg="#f0f0f0")
-    progress_label.pack()
-    log_frame = tk.Frame(root, bg="#f0f0f0", height=100)
-    log_frame.pack(pady=10, fill="x", padx=20)
-    log_widget = scrolledtext.ScrolledText(log_frame, state=tk.DISABLED, height=10, wrap=tk.WORD, font=("Courier New", 9))
-    log_widget.pack(fill="both", expand=True)
-    run_button = tk.Button(root, text="Select Folders and Run", command=run_process_thread, height=2, width=30, bg="#4CAF50", fg="white", font=("Helvetica", 12, "bold"))
-    run_button.pack(pady=20)
+        logo_label = tk.Label(header_frame, text="STELLANTIS", font=("Segoe UI", 16, "bold"), fg="white", bg=stellantis_blue)
+        logo_label.pack(fill=tk.BOTH, expand=True)
+    
+    # Function to resize image on window resize
+    def resize_image(event=None):
+        if img_stellantis_logo_original and hasattr(root, 'image'):
+            width = root.winfo_width()
+            if width > 0:
+                resized = img_stellantis_logo_original.resize((width, 60), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(resized)
+                root.image = photo
+                logo_label.config(image=photo)
+    
+    root.bind('<Configure>', resize_image)
+
+    # --- Main content frame ---
+    main_frame = ttk.Frame(container, padding="13")
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Title
+    title_main = ttk.Label(main_frame, text="MIX GENERATION", style='Title.TLabel')
+    title_main.pack(pady=(0, 10))
+
+    # Status section
+    progress_label = ttk.Label(main_frame, text="Ready to start. Click 'Select Folders and Run'.", font=("Segoe UI", 11), foreground=stellantis_blue)
+    progress_label.pack(pady=(2, 5), padx=1, fill=tk.X)
+
+    # Progress bar with accent color
+    progress_bar = ttk.Progressbar(main_frame, orient='horizontal', length=400, mode='determinate')
+    progress_bar.pack(pady=10, padx=5, fill=tk.X)
+
+    # Button section with modern styling
+    button_frame = ttk.Frame(main_frame)
+    button_frame.pack(pady=4, fill=tk.X)
+    
+    run_button = ttk.Button(button_frame, text="▶ Select Folders and Run", command=run_process_thread, style='TButton')
+    run_button.pack(side=tk.LEFT, padx=5)
+    
+    # Log section with accent
+    log_frame = ttk.LabelFrame(main_frame, text="📋 Activity Log", padding="13")
+    log_frame.pack(pady=0, padx=2, fill=tk.BOTH, expand=True)
+    
+    log_widget = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=80, height=10, font=("Consolas", 11), bg="#F5F5F5", fg="#333333", state=tk.DISABLED)
+    log_widget.pack(fill=tk.BOTH, expand=True)
+    
+    # Footer section with STELLANTIS branding
+    footer_frame = tk.Frame(container, bg=stellantis_blue, height=34)
+    footer_frame.pack(fill=tk.X, padx=0, pady=0, side=tk.BOTTOM)
+    footer_frame.pack_propagate(False)
+    
+    # Left side - STELLANTIS branding
+    left_footer = tk.Frame(footer_frame, bg=stellantis_blue)
+    left_footer.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=15, pady=10)
+    
+    stellantis_label = tk.Label(left_footer, text="🏢 STELLANTIS", font=("Segoe UI", 11, "bold"), fg=stellantis_orange, bg=stellantis_blue)
+    stellantis_label.pack(side=tk.LEFT, padx=1)
+    
+    # Right side - Developer credit
+    right_footer = tk.Frame(footer_frame, bg=stellantis_blue)
+    right_footer.pack(side=tk.RIGHT, padx=15, pady=10)
+    
+    footer_label = tk.Label(right_footer, text="Developed by: Vincent Pernarh", font=("Segoe UI", 9), fg="white", bg=stellantis_blue)
+    footer_label.pack(anchor="e")
+
     root.mainloop()
 
 if __name__ == "__main__":
