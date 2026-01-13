@@ -102,7 +102,6 @@ def run_parten_process(source_folder, output_folder, log_widget_param, progress_
         if progress_bar: root.after(0, progress_bar.stop)
 
 
-
 # --- Data Dictionaries and Cleaning Functions ---
 livello_map = {"liv.0":"LL0","liv.1":"LL1","liv.2":"LL2","liv.3":"LL3","liv.4":"LL4","liv.5":"LL5","liv.6":"LL6","liv.7":"LL7","liv.8":"LL8","liv.9":"LL9","liv.10":"LL10","liv.11":"LL11","liv.12":"LL12","liv.13":"LL13"}
 map_598 = {"liv.0":"Level 0","liv.1":"Level 1","liv.2":"Level 2","liv.3":"Level 3","liv.4":"Level 4","liv.5":"Level 5","liv.6":"Level 6","liv.7":"Level 7","liv.8":"Level 8","liv.9":"Level 9","liv.10":"Level 10","liv.11":"Level 11","liv.12":"Level 12","LL0":"Level 0","LL1":"Level 1","LL2":"Level 2","LL3":"Level 3","LL4":"Level 4","LL5":"Level 5","LL6":"Level 6","LL7":"Level 7","LL8":"Level 8","LL9":"Level 9","LL10":"Level 10","LL11":"Level 11","LL12":"Level 12"}

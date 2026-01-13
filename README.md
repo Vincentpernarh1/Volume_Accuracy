@@ -39,8 +39,10 @@ This system processes automotive production data to:
 ```
 Volume_Accuracy/
 ├── Volume_Accuracy.py       # Main application with GUI
+├── Volume_Parten.py         # Parten-specific processing module
 ├── optimiz.py               # Optimized version (secondary)
 ├── History1.py              # Legacy/reference implementation
+├── Volume_Accuracy.spec     # PyInstaller specification for executable build
 ├── assets/
 │   └── Vlc_img.png         # STELLANTIS logo for GUI
 └── Map Opeperation/
@@ -556,7 +558,18 @@ pip install pandas numpy openpyxl Pillow
 
 ## Version History
 
-### Version 2.0 (Current - optimiz.py & Volume_Accuracy.py)
+### Version 2.1 (Current - Volume_Parten.py & Executable Build)
+**Date:** January 2026
+
+**New Features:**
+- ✅ Added Volume_Parten.py module for dedicated parten data processing
+- ✅ Included PyInstaller spec file (Volume_Accuracy.spec) for streamlined executable builds
+- ✅ Enhanced build process with proper asset inclusion
+
+**Improvements:**
+- Minor code cleanup and optimization in processing modules
+
+### Version 2.0 (optimiz.py & Volume_Accuracy.py)
 **Date:** November 2025
 
 **Major Changes:**
@@ -893,8 +906,8 @@ Matches: `liv.5`, `liv5`, `liv. 10`
 
 ## End of Documentation
 
-**Last Updated:** November 25, 2025  
-**Document Version:** 2.0  
+**Last Updated:** January 13, 2026  
+**Document Version:** 2.1  
 **Author:** Technical Documentation Team
 
 ---

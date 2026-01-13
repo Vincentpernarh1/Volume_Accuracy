@@ -12,7 +12,6 @@ from datetime import datetime
 from PIL import Image, ImageTk
 import sys
 import polars as pl
-import polars as pl
 import Volume_Parten
 
 # --- Global variables ---
