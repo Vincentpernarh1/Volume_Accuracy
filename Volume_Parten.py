@@ -246,6 +246,7 @@ def restructure_parten_to_relatorio(df_parten, mapping_file_path):
         excluded = ",".join(sorted(set(excluded_tokens))) if excluded_tokens else ""
         included = ",".join(sorted(set(included_tokens))) if included_tokens else ""
         
+        
         results.append({
             "Plant": plant,
             "multivalues": multivalues,
@@ -253,10 +254,13 @@ def restructure_parten_to_relatorio(df_parten, mapping_file_path):
             "excluded": excluded,
             "Parten": modelo
         })
+        
+        
     
     # Convert to Polars DataFrame
     result_df = pl.DataFrame(results)
     log_message(f"-> Restructured {len(result_df)} rows from parten to relatorio_61 form.")
+    
     return result_df
 
 def clean_griglia(df_griglia):
@@ -306,7 +310,7 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
             })
             results.append(row_data)
             continue
-
+        
         # Get unique SINCOM rows
         unique_sincom_rows = (
             filtered_griglia
@@ -349,6 +353,10 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
                 result_df = result_df.with_columns(pl.lit(None).alias(col))
             
     log_message(f"-> Finished processing '{field}' volume table.")
+    
+    # result_df_exp = result_df
+    # result_df_exp.to_pandas().to_excel("debug_volume_expanded.xlsx", index=False)  # Debug output of expanded results
+    
     return result_df.select(preserved_cols)
 
 def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="max"):
@@ -357,32 +365,36 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
 
     volume_values = []
     for packet_code in unique_packet_values:
+        # Pad packet codes to 3 digits with leading zeros
         if len(packet_code) == 1:
             packet_code = "00" + packet_code
         elif len(packet_code) == 2:
             packet_code = "0" + packet_code
         packet_code = packet_code.strip()
 
+        # Helper function to pad codes to 3 digits
+        def pad_code(code_str):
+            code_str = str(code_str).strip()
+            if len(code_str) == 1:
+                return "00" + code_str
+            elif len(code_str) == 2:
+                return "0" + code_str
+            return code_str
 
-        # --- Helper function to normalize the search term ---
-        def normalize_search_term(code_str):
-           
-            try:
-                # Convert to float first to handle decimals like '45.0', then to int
-                return str(int(float(code_str)))
-            except (ValueError, TypeError):
-                # If conversion fails, it's not a number, so return the original string
-                return code_str
-
-        
-        search_term = normalize_search_term(packet_code)
-
-        # 2. Use the cleaned search_term to filter the 'Code' column.
-        #    We ensure the 'Code' column is treated as a string to use .str.contains()
+        # Match by exact Code after padding both sides to 3 digits
         matched_by_code = filtered_griglia.filter(
             (pl.col("SINCOM") == sincom) &
-            (pl.col("Code").cast(pl.Utf8).str.contains(search_term, literal=True))
+            (pl.col("Code").cast(pl.Utf8).map_elements(pad_code, return_dtype=pl.Utf8) == packet_code)
         )
+        
+        # --- DEBUG for 014 ---
+        if packet_code == "014":
+            print(f"\n>>> DEBUG compute_volume_metric for packet_code='014', sincom='{sincom}'")
+            print(f"    Padded packet_code: '{packet_code}'")
+            print(f"    matched_by_code rows: {len(matched_by_code)}")
+            if not matched_by_code.is_empty():
+                print("    Matched by code:")
+                print(matched_by_code.select(["SINCOM", "Code", "Packet", "Volume"]))
                 
         # Match by packet name (e.g., in 'included' column of griglia)
         matched_by_packet = filtered_griglia.filter(
@@ -391,6 +403,13 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
             (pl.col("Packet_cleaned").str.to_lowercase().str.starts_with("pack")) &
             (pl.col("Packet_cleaned").str.to_lowercase().str.contains(str(packet_code).lower(), literal=True))
         )
+        
+        # --- DEBUG for 014 ---
+        if packet_code == "014":
+            print(f"    matched_by_packet rows: {len(matched_by_packet)}")
+            if not matched_by_packet.is_empty():
+                print("    Matched by packet name:")
+                print(matched_by_packet.select(["SINCOM", "Code", "Packet", "Packet_cleaned", "Volume"]))
         
         matched_packets = pl.concat([matched_by_code, matched_by_packet])
 
@@ -422,13 +441,24 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
                 continue
         volume_values.append(volume)
         
+        # --- DEBUG for 014 ---
+        if packet_code == "014":
+            print(f"    Volume extracted for '014': {volume}")
+        
     if not volume_values:
         return 0
     if mode == "min":
-        return min(volume_values) if len(volume_values) == (len(unique_packet_values)) else 0
+        result = min(volume_values) if len(volume_values) == (len(unique_packet_values)) else 0
     else:
         # For "max" mode, return the max of whatever we found
-        return max(volume_values)
+        result = max(volume_values)
+    
+    # --- DEBUG for 014 ---
+    if "014" in unique_packet_values:
+        print(f"    Final result for packet codes {unique_packet_values}: {result} (mode={mode})")
+        print(f"    All volume_values collected: {volume_values}\n")
+    
+    return result
     
 
 def create_flat_parten_dataset(df_61, df_griglia):

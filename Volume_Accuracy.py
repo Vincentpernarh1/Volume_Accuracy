@@ -769,15 +769,15 @@ def create_gui():
     left_footer = tk.Frame(footer_frame, bg=stellantis_blue)
     left_footer.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=15, pady=10)
     
-    stellantis_label = tk.Label(left_footer, text="🏢 STELLANTIS", font=("Segoe UI", 11, "bold"), fg=stellantis_orange, bg=stellantis_blue)
+    stellantis_label = tk.Label(left_footer, text="📲 DHL  ➡️🏢 STELLANTIS", font=("Segoe UI", 11, "bold"), fg=stellantis_orange, bg=stellantis_blue)
     stellantis_label.pack(side=tk.LEFT, padx=1)
     
     # Right side - Developer credit
     right_footer = tk.Frame(footer_frame, bg=stellantis_blue)
     right_footer.pack(side=tk.RIGHT, padx=15, pady=10)
     
-    footer_label = tk.Label(right_footer, text="Developed by: Vincent Pernarh", font=("Segoe UI", 9), fg="white", bg=stellantis_blue)
-    footer_label.pack(anchor="e")
+    # footer_label = tk.Label(right_footer, text="Developed by: Vincent Pernarh", font=("Segoe UI", 9), fg="white", bg=stellantis_blue)
+    # footer_label.pack(anchor="e")
 
     root.mainloop()
 
