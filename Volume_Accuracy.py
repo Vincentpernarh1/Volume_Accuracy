@@ -535,6 +535,9 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61_pd = df_61.to_pandas()
     df_61_pd = map_multi_included_to_griglia(df_61_pd, df_griglia.to_pandas())
     
+    df_61_pd.to_excel("Before_Excluded.xlsx", index=False) 
+    # print(df_61_pd)
+    
     update_progress(60, "Mapping excluded multivalues...")
     df_61_pd = map_multi_excluded_to_griglia(df_61_pd, df_griglia.to_pandas(), df_mapping)
     update_progress(75, "Calculating final volumes...")
@@ -546,7 +549,7 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
     df_61_pd["volume_Head"] = pd.to_numeric(df_61_pd["volume_Head"], errors="coerce")
     df_61_pd["Used_Fallback_HeadVolume"] = False
 
-    # df_61_pd.to_excel("After_Included.xlsx", index=False)
+    df_61_pd.to_excel("After_Included.xlsx", index=False)
 
     if all(col in df_61_pd.columns for col in ["included", "Code_included", "multi_included_min_volume"]):
 
@@ -559,13 +562,6 @@ def extract_and_save_structured_data(df_61, mapping_file_path, df_griglia):
         
         df_61_pd.loc[mask_min, "Final_Volume_include"] = np.minimum(df_61_pd.loc[mask_min, "Code_included"], df_61_pd.loc[mask_min, "multi_included_min_volume"])
         
-        
-
-        #This is remove for the sake of markets being recalculated and also
-        
-        # mask_include_condition = (df_61["Multi_included"].fillna("").astype(str).apply(lambda x: any(val.strip().upper() in markets for val in x.split(",") if val.strip())) & (df_61["included"].notna() | (df_61["Code_included"].fillna(0) == 0)))
-        # df_61.loc[mask_include_condition, "Final_Volume_include"] = np.maximum(df_61.loc[mask_include_condition, "Code_included"].fillna(0), df_61.loc[mask_include_condition, "multi_included_min_volume"].fillna(0))
-       
         mask_multi_include_condition = ((df_61_pd["included"].astype(str).str.strip().str.lower().isin(["none", ""])) | (df_61_pd["included"].fillna("").astype(str).str.strip() == "")) & (df_61_pd["multi_included_min_volume"] != 0)
         df_61_pd.loc[mask_multi_include_condition, "Final_Volume_include"] = np.maximum(df_61_pd.loc[mask_multi_include_condition, "Code_included"].fillna(0), df_61_pd.loc[mask_multi_include_condition, "multi_included_min_volume"].fillna(0))
         if all(col in df_61_pd.columns for col in ["excluded", "Code_excluded", "volume_Head"]):
@@ -598,7 +594,9 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
-    df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
+    
+    df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower().replace(r'\.0$', '', regex=True)
+    
     df_griglia["Plant_cleaned"] = df_griglia["Plant"].astype(str).str.strip()
     df_griglia["Multivalues_cleaned_list"] = df_griglia["Multivalues"].astype(str).str.lower().str.replace(r'\s+', '', regex=True).str.split(",")
     min_volumes = []
@@ -618,6 +616,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
                 token_griglia_rows = filtered_griglia[filtered_griglia["Multivalues_cleaned_list"].apply(lambda x: token in x if isinstance(x, list) else False)]
             else:
                 token_griglia_rows = filtered_griglia[filtered_griglia["Multivalues"].str.lower().str.replace(" ", "").str.contains(token, na=False, regex=False)]
+            
            
             for _, gr_row in token_griglia_rows.iterrows():
                 if str(gr_row["SINCOM"]).strip() == sincom:
@@ -630,6 +629,8 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
 
         min_volumes.append(min(matched_volumes) if matched_volumes else np.nan)
     df_flattened_copy["multi_included_min_volume"] = min_volumes
+    
+    
     log_message("-> Mapped multi-included volumes.")
     return df_flattened_copy
 

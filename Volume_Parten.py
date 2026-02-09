@@ -387,15 +387,7 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
             (pl.col("Code").cast(pl.Utf8).map_elements(pad_code, return_dtype=pl.Utf8) == packet_code)
         )
         
-        # --- DEBUG for 014 ---
-        if packet_code == "014":
-            print(f"\n>>> DEBUG compute_volume_metric for packet_code='014', sincom='{sincom}'")
-            print(f"    Padded packet_code: '{packet_code}'")
-            print(f"    matched_by_code rows: {len(matched_by_code)}")
-            if not matched_by_code.is_empty():
-                print("    Matched by code:")
-                print(matched_by_code.select(["SINCOM", "Code", "Packet", "Volume"]))
-                
+        
         # Match by packet name (e.g., in 'included' column of griglia)
         matched_by_packet = filtered_griglia.filter(
             (pl.col("SINCOM") == sincom) &
@@ -404,12 +396,6 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
             (pl.col("Packet_cleaned").str.to_lowercase().str.contains(str(packet_code).lower(), literal=True))
         )
         
-        # --- DEBUG for 014 ---
-        if packet_code == "014":
-            print(f"    matched_by_packet rows: {len(matched_by_packet)}")
-            if not matched_by_packet.is_empty():
-                print("    Matched by packet name:")
-                print(matched_by_packet.select(["SINCOM", "Code", "Packet", "Packet_cleaned", "Volume"]))
         
         matched_packets = pl.concat([matched_by_code, matched_by_packet])
 
@@ -441,10 +427,7 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
                 continue
         volume_values.append(volume)
         
-        # --- DEBUG for 014 ---
-        if packet_code == "014":
-            print(f"    Volume extracted for '014': {volume}")
-        
+       
     if not volume_values:
         return 0
     if mode == "min":
@@ -452,11 +435,6 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
     else:
         # For "max" mode, return the max of whatever we found
         result = max(volume_values)
-    
-    # --- DEBUG for 014 ---
-    if "014" in unique_packet_values:
-        print(f"    Final result for packet codes {unique_packet_values}: {result} (mode={mode})")
-        print(f"    All volume_values collected: {volume_values}\n")
     
     return result
     
@@ -725,7 +703,7 @@ def map_multi_included_to_griglia(df_flattened, df_griglia):
     log_message("Processing: map_multi_included_to_griglia()")
     df_flattened_copy = df_flattened.copy()
     df_flattened_copy["Modelo"] = df_flattened_copy["Modelo"].astype(str).str.strip().str.lower()
-    df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower()
+    df_griglia["Model_cleaned"] = df_griglia["Model"].astype(str).str.strip().str.lower().replace(r'\.0$', '', regex=True)
     df_griglia["Plant_cleaned"] = df_griglia["Plant"].astype(str).str.strip()
     df_griglia["Multivalues_cleaned_list"] = df_griglia["Multivalues"].astype(str).str.lower().str.replace(r'\s+', '', regex=True).str.split(",")
     min_volumes = []
