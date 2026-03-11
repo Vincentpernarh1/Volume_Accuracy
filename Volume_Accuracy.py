@@ -247,7 +247,8 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
             (pl.col("Model_cleaned") == model_61) &
             (pl.col("Plant_cleaned") == plant_61)
         )
-
+        
+        
         packet_values = [val.replace(" ", "").strip().upper() for val in packet_raw.split(",") if val.strip()]
         unique_packet_values = set(packet_values)
 
@@ -291,6 +292,8 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
             results.append(row_data)
     
     result_df = pl.DataFrame(results)
+    
+    
     preserved_cols = list(df_61.columns) + ["SINCOM", "volume_Head", "VolumeTT", min_col_name]
     # Ensure all columns are present, even if empty
     for col in preserved_cols:
@@ -301,6 +304,8 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
                 result_df = result_df.with_columns(pl.lit(None).alias(col))
             
     log_message(f"-> Finished processing '{field}' volume table.")
+    
+    
     return result_df.select(preserved_cols)
 
 def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="max"):
@@ -309,31 +314,19 @@ def compute_volume_metric(unique_packet_values, sincom, filtered_griglia, mode="
 
     volume_values = []
     for packet_code in unique_packet_values:
+        packet_code = packet_code.strip().removesuffix('.0')
         if len(packet_code) == 1:
             packet_code = "00" + packet_code
         elif len(packet_code) == 2:
             packet_code = "0" + packet_code
         packet_code = packet_code.strip()
-
-
-        # --- Helper function to normalize the search term ---
-        def normalize_search_term(code_str):
-           
-            try:
-                # Convert to float first to handle decimals like '45.0', then to int
-                return str(int(float(code_str)))
-            except (ValueError, TypeError):
-                # If conversion fails, it's not a number, so return the original string
-                return code_str
-
         
-        search_term = normalize_search_term(packet_code)
 
         # 2. Use the cleaned search_term to filter the 'Code' column.
         #    We ensure the 'Code' column is treated as a string to use .str.contains()
         matched_by_code = filtered_griglia.filter(
             (pl.col("SINCOM") == sincom) &
-            (pl.col("Code").cast(pl.Utf8).str.contains(search_term, literal=True))
+            (pl.col("Code").cast(pl.Utf8).str.contains(packet_code, literal=True))
         )
                 
         # Match by packet name (e.g., in 'included' column of griglia)
