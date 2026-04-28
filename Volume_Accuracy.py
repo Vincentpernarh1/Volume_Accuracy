@@ -209,9 +209,12 @@ def load_dataframes(File_Rela_61, File_Griglia):
     data_griglia = list(sheet_griglia.iter_rows(values_only=True))
     df_griglia = pd.DataFrame(data_griglia[1:], columns=data_griglia[0]).astype(str)
 
-    # Convert to Polars DataFrames
+    # Convert to Polars DataFrames with explicit string types to prevent schema inference issues
     df_61_pl = pl.from_pandas(df_61)
+    # Force SINCOM and other key columns to remain as strings
     df_griglia_pl = pl.from_pandas(df_griglia)
+    if 'SINCOM' in df_griglia_pl.columns:
+        df_griglia_pl = df_griglia_pl.with_columns(pl.col('SINCOM').cast(pl.Utf8))
 
     log_message("✅ DataFrames loaded and prepared successfully.")
     return df_61_pl, df_griglia_pl
@@ -291,8 +294,13 @@ def process_volume_table(df_61, df_griglia, field="excluded", min_col_name="Code
             })
             results.append(row_data)
     
-    result_df = pl.DataFrame(results)
+    # Create DataFrame with increased schema inference length to handle mixed types
+    # This prevents Polars from misidentifying string columns (like SINCOM) as numeric
+    result_df = pl.DataFrame(results, infer_schema_length=None)
     
+    # Explicitly ensure SINCOM is treated as string
+    if 'SINCOM' in result_df.columns:
+        result_df = result_df.with_columns(pl.col('SINCOM').cast(pl.Utf8))
     
     preserved_cols = list(df_61.columns) + ["SINCOM", "volume_Head", "VolumeTT", min_col_name]
     # Ensure all columns are present, even if empty
